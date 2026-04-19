@@ -1,0 +1,472 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>ASHRAE Energy Dashboard</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+  <style>
+    :root{
+      --bg:#f3f6fb; --card:#fff; --text:#0f172a; --muted:#64748b;
+      --shadow:0 12px 26px rgba(15,23,42,.09); --radius:18px;
+      --blue:#2563eb; --pink:#ec4899; --green:#16a34a; --red:#ef4444; --amber:#f59e0b;
+      --border:#e2e8f0;
+    }
+    body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Arial; background:var(--bg); margin:0; padding:22px; color:var(--text);}
+    h1{margin:0 0 14px 0; font-size:34px; letter-spacing:.2px;}
+    .topbar{display:flex; gap:10px; align-items:center; flex-wrap:wrap; margin-bottom:14px;}
+    .topbar input{width:160px; padding:10px 12px; border:1px solid var(--border); border-radius:12px; background:#fff;}
+    .btn{padding:10px 14px; border:none; border-radius:12px; background:#111827; color:white; cursor:pointer;}
+    .btn:hover{opacity:.93;}
+    .muted{color:var(--muted); font-size:12px;}
+    .pill{display:inline-flex; align-items:center; padding:6px 10px; border-radius:999px; font-size:12px; background:#eef2ff; color:#3730a3;}
+    .grid{display:grid; grid-template-columns: repeat(12, 1fr); gap:16px;}
+    .card{background:var(--card); border-radius:var(--radius); box-shadow:var(--shadow); padding:16px;}
+    .kpi{grid-column: span 3;}
+    .kpi .t{color:var(--muted); font-size:13px; margin-bottom:6px;}
+    .kpi .v{font-size:26px; font-weight:850;}
+    .kpi .s{margin-top:4px;}
+    .main{grid-column: span 8;}
+    .side{grid-column: span 4;}
+    .two{display:grid; grid-template-columns: 1fr 1fr; gap:16px;}
+    .headerRow{display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;}
+    .headerRow h3{margin:0; font-size:16px;}
+    canvas{width:100%!important; height:320px!important;}
+    .insightsList{margin:8px 0 0 18px;}
+    .badgeHigh{background:#fee2e2; color:#991b1b;}
+    .badgeMed{background:#fef3c7; color:#92400e;}
+    .badgeLow{background:#dcfce7; color:#166534;}
+
+    /* ✅ PREDICT SECTION IMPROVEMENT:
+       Chart is now BELOW the form so it gets full width */
+    .predict-grid{display:grid; grid-template-columns: repeat(2, 1fr); gap:12px;}
+    .field{display:flex; flex-direction:column; gap:6px;}
+    label{font-size:12px; color:var(--muted);}
+    input{padding:10px 12px; border:1px solid var(--border); border-radius:12px;}
+
+    .deltaBox{margin-top:10px; padding:10px 12px; border:1px solid var(--border); border-radius:14px; background:#f8fafc;}
+
+    /* ✅ Make the predict compare chart shorter & stable */
+    #predictCompareChart{height:220px!important;}
+
+    /* ✅ Create spacing between text and chart */
+    .predictChartWrap{margin-top:12px;}
+
+    @media (max-width: 1100px){
+      .kpi{grid-column: span 6;}
+      .main{grid-column: span 12;}
+      .side{grid-column: span 12;}
+      .two{grid-template-columns: 1fr;}
+      .predict-grid{grid-template-columns: 1fr;}
+    }
+  </style>
+</head>
+<body>
+
+  <h1>⚡ ASHRAE Energy Dashboard</h1>
+
+  <div class="topbar">
+    <b>Building ID:</b>
+    <input type="number" id="buildingId" value="1" min="0" />
+    <button class="btn" onclick="loadData()">Load</button>
+    <span class="muted" id="status"></span>
+    <span class="pill" id="severityPill">Waste Risk: -</span>
+  </div>
+
+  <!-- KPIs -->
+  <div class="grid">
+    <div class="card kpi">
+      <div class="t">Total Records</div>
+      <div class="v" id="kpiRecords">-</div>
+      <div class="muted s" id="sampleNote"></div>
+    </div>
+    <div class="card kpi">
+      <div class="t">Average Energy</div>
+      <div class="v" id="kpiAvg">-</div>
+    </div>
+    <div class="card kpi">
+      <div class="t">Max Energy</div>
+      <div class="v" id="kpiMax">-</div>
+    </div>
+    <div class="card kpi">
+      <div class="t">Waste Rate</div>
+      <div class="v" id="kpiWaste">-</div>
+      <div class="muted s">% points where Actual &gt; Expected</div>
+    </div>
+
+    <!-- MAIN -->
+    <div class="main">
+      <div class="two">
+        <div class="card">
+          <div class="headerRow">
+            <h3>Actual vs Expected by Hour</h3>
+            <span class="pill" id="peakWasteHour">Peak waste hour: -</span>
+          </div>
+          <canvas id="hourCompareChart"></canvas>
+        </div>
+
+        <div class="card">
+          <div class="headerRow">
+            <h3>Waste by Hour</h3>
+            <span class="muted" id="topWasteText"></span>
+          </div>
+          <canvas id="wasteHourChart"></canvas>
+        </div>
+      </div>
+
+      <div class="two" style="margin-top:16px;">
+        <div class="card">
+          <div class="headerRow">
+            <h3>Energy by Month</h3>
+          </div>
+          <canvas id="monthChart"></canvas>
+        </div>
+
+        <div class="card">
+          <div class="headerRow">
+            <h3>Waste by Day of Week</h3>
+          </div>
+          <canvas id="wasteDowChart"></canvas>
+        </div>
+      </div>
+
+      <div class="card" style="margin-top:16px;">
+        <div class="headerRow">
+          <h3>Energy vs Temperature</h3>
+          <span class="muted">Zoom using browser (Chart.js tooltips show exact values)</span>
+        </div>
+        <canvas id="tempChart"></canvas>
+      </div>
+
+      <div class="card" style="margin-top:16px;">
+        <div class="headerRow">
+          <h3>🔥 Waste Hotspot Map (Hour × Day)</h3>
+          <span class="muted">Bigger + redder bubbles = more waste</span>
+        </div>
+        <canvas id="wasteHeatChart"></canvas>
+      </div>
+    </div>
+
+    <!-- SIDE / INSIGHTS -->
+    <div class="side">
+      <div class="card">
+        <div class="headerRow">
+          <h3>Actionable Insights</h3>
+          <span class="muted">updates automatically</span>
+        </div>
+        <div class="deltaBox">
+          <div class="muted">What it means</div>
+          <div id="insightSummary" style="font-weight:800; margin-top:6px;">-</div>
+        </div>
+
+        <div class="deltaBox">
+          <div class="muted">Prevention Tips</div>
+          <ul id="recsList" class="insightsList"></ul>
+        </div>
+
+        <div class="deltaBox">
+          <div class="muted">Top Waste Hours</div>
+          <div id="topHoursBlock" class="muted" style="margin-top:8px;">-</div>
+        </div>
+      </div>
+
+      <!-- ✅ Predict & Compare: chart moved below -->
+      <div class="card" style="margin-top:16px;">
+        <div class="headerRow">
+          <h3>Predict & Compare</h3>
+          <span class="muted">Typical vs Predicted</span>
+        </div>
+
+        <div>
+          <div class="predict-grid">
+            <div class="field">
+              <label>Building ID</label>
+              <input type="number" id="predict_building_id" value="1">
+            </div>
+            <div class="field">
+              <label>Meter Type</label>
+              <input type="number" id="meter" value="0">
+            </div>
+            <div class="field">
+              <label>Square Feet</label>
+              <input type="number" id="square_feet" value="50000">
+            </div>
+            <div class="field">
+              <label>Air Temperature (°C)</label>
+              <input type="number" id="air_temperature" value="20">
+            </div>
+            <div class="field">
+              <label>Cloud Coverage</label>
+              <input type="number" id="cloud_coverage" value="5">
+            </div>
+            <div class="field">
+              <label>Hour</label>
+              <input type="number" id="hour" value="14" min="0" max="23">
+            </div>
+            <div class="field">
+              <label>Month</label>
+              <input type="number" id="month" value="6" min="1" max="12">
+            </div>
+            <div class="field">
+              <label>Day of Week</label>
+              <input type="number" id="dayofweek" value="2">
+            </div>
+          </div>
+
+          <button class="btn" style="margin-top:12px;" onclick="predict()">Predict</button>
+
+          <div class="deltaBox" id="predictText" style="margin-top:12px;">
+            Predicted vs Typical will show here.
+          </div>
+
+          <!-- ✅ Chart now below (full width) -->
+          <div class="predictChartWrap">
+            <canvas id="predictCompareChart"></canvas>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+
+<script>
+  let hourCompareChart, wasteHourChart, monthChart, tempChart, wasteDowChart, predictCompareChart, wasteHeatChart;
+  let debounceTimer = null;
+
+  const buildingInput = document.getElementById("buildingId");
+  const predictBuildingInput = document.getElementById("predict_building_id");
+
+  // auto refresh + sync
+  buildingInput.addEventListener("input", () => {
+    predictBuildingInput.value = buildingInput.value;
+    clearTimeout(debounceTimer);
+    debounceTimer = setTimeout(loadData, 450);
+  });
+
+  function setStatus(msg){ document.getElementById("status").innerText = msg || ""; }
+
+  function fmt(n){
+    if(n === null || n === undefined || isNaN(n)) return "-";
+    if(n >= 1_000_000) return (n/1_000_000).toFixed(2) + "M";
+    if(n >= 1_000) return (n/1_000).toFixed(2) + "K";
+    return Number(n).toFixed(2);
+  }
+
+  function destroyCharts(){
+    [hourCompareChart,wasteHourChart,monthChart,tempChart,wasteDowChart,predictCompareChart,wasteHeatChart]
+      .forEach(c => { if(c) c.destroy(); });
+  }
+
+  function setSeverityPill(sev){
+    const pill = document.getElementById("severityPill");
+    pill.innerText = "Waste Risk: " + (sev || "-");
+    pill.className = "pill";
+    if(sev === "High") pill.classList.add("badgeHigh");
+    else if(sev === "Medium") pill.classList.add("badgeMed");
+    else if(sev === "Low") pill.classList.add("badgeLow");
+  }
+
+  async function loadData(){
+    const buildingId = buildingInput.value;
+    setStatus("Loading…");
+
+    try{
+      const res = await fetch(`/data/${buildingId}`);
+      const data = await res.json();
+      destroyCharts();
+
+      if(!data.ok){
+        setStatus(data.message || "No data");
+        setSeverityPill("N/A");
+        document.getElementById("kpiRecords").innerText = "0";
+        document.getElementById("kpiAvg").innerText = "-";
+        document.getElementById("kpiMax").innerText = "-";
+        document.getElementById("kpiWaste").innerText = "-";
+        document.getElementById("sampleNote").innerText = "";
+        document.getElementById("peakWasteHour").innerText = "Peak waste hour: -";
+        document.getElementById("topWasteText").innerText = "";
+        document.getElementById("insightSummary").innerText = "No data.";
+        document.getElementById("recsList").innerHTML = `<li>${data.message || "No data"}</li>`;
+        document.getElementById("topHoursBlock").innerText = "-";
+        return;
+      }
+
+      setStatus("");
+      const k = data.kpis || {};
+      document.getElementById("kpiRecords").innerText = (k.total_records ?? "-");
+      document.getElementById("sampleNote").innerText = k.sample_size ? `Dashboard uses sample of ${k.sample_size}` : "";
+      document.getElementById("kpiAvg").innerText = fmt(k.avg_energy);
+      document.getElementById("kpiMax").innerText = fmt(k.max_energy);
+      document.getElementById("kpiWaste").innerText = ((k.waste_rate ?? 0) * 100).toFixed(1) + "%";
+      document.getElementById("peakWasteHour").innerText = "Peak waste hour: " + (k.peak_waste_hour ?? "-");
+      setSeverityPill(k.severity);
+
+      const sev = k.severity;
+      const peak = k.peak_waste_hour;
+      document.getElementById("insightSummary").innerText =
+        `${sev} waste risk. Highest waste around hour ${peak}. Focus improvements there.`;
+
+      const top = data.top_waste_hours || [];
+      if(top.length){
+        const s = top.map(x => `h${x.hour}: ${fmt(x.waste)}`).join(" • ");
+        document.getElementById("topWasteText").innerText = "Top: " + s;
+        document.getElementById("topHoursBlock").innerText = s;
+      } else {
+        document.getElementById("topWasteText").innerText = "";
+        document.getElementById("topHoursBlock").innerText = "-";
+      }
+
+      const ul = document.getElementById("recsList");
+      ul.innerHTML = "";
+      (data.recommendations || []).forEach(r => {
+        const li = document.createElement("li");
+        li.innerText = r;
+        ul.appendChild(li);
+      });
+
+      const hourly = data.hourly || [];
+      const hours = hourly.map(d => d.hour);
+      const actual = hourly.map(d => d.actual);
+      const expected = hourly.map(d => d.expected);
+      const waste = hourly.map(d => d.waste);
+
+      const wasteColors = waste.map(v => (v >= 0 ? "rgba(239,68,68,0.40)" : "rgba(22,163,74,0.40)"));
+      const wasteBorder = waste.map(v => (v >= 0 ? "rgba(239,68,68,0.95)" : "rgba(22,163,74,0.95)"));
+
+      hourCompareChart = new Chart(document.getElementById("hourCompareChart"), {
+        type:"line",
+        data:{
+          labels: hours,
+          datasets:[
+            {label:"Actual", data: actual, borderColor:"#2563eb", backgroundColor:"rgba(37,99,235,0.12)", fill:true, tension:0.28, pointRadius:2, borderWidth:3},
+            {label:"Expected", data: expected, borderColor:"#ec4899", backgroundColor:"rgba(236,72,153,0.08)", fill:false, tension:0.28, pointRadius:2, borderWidth:3, borderDash:[6,4]}
+          ]
+        },
+        options:{
+          responsive:true, maintainAspectRatio:false,
+          plugins:{ legend:{ position:"top" }, tooltip:{ callbacks:{ label: (ctx)=> `${ctx.dataset.label}: ${fmt(ctx.raw)}` }}}
+        }
+      });
+
+      wasteHourChart = new Chart(document.getElementById("wasteHourChart"), {
+        type:"bar",
+        data:{ labels: hours, datasets:[{label:"Waste", data:waste, backgroundColor:wasteColors, borderColor:wasteBorder, borderWidth:1.4}]},
+        options:{ responsive:true, maintainAspectRatio:false, plugins:{ legend:{ position:"top"} } }
+      });
+
+      const monthly = data.monthly || [];
+      monthChart = new Chart(document.getElementById("monthChart"), {
+        type:"bar",
+        data:{ labels: monthly.map(d=>d.month),
+          datasets:[{label:"Avg Energy", data: monthly.map(d=>d.actual), backgroundColor:"rgba(37,99,235,0.30)", borderColor:"#2563eb", borderWidth:1.4}]},
+        options:{ responsive:true, maintainAspectRatio:false }
+      });
+
+      const dow = data.waste_by_dow || [];
+      wasteDowChart = new Chart(document.getElementById("wasteDowChart"), {
+        type:"bar",
+        data:{ labels: dow.map(d=>d.dayofweek),
+          datasets:[{label:"Avg Waste", data: dow.map(d=>d.waste), backgroundColor:"rgba(245,158,11,0.28)", borderColor:"#f59e0b", borderWidth:1.4}]},
+        options:{ responsive:true, maintainAspectRatio:false }
+      });
+
+      const scatter = data.scatter || [];
+      const scatterData = scatter.map(d=>({ x:d.air_temperature, y:d.actual }));
+      tempChart = new Chart(document.getElementById("tempChart"), {
+        type:"scatter",
+        data:{ datasets:[{label:"Temp vs Energy", data: scatterData, backgroundColor:"rgba(37,99,235,0.35)"}]},
+        options:{ responsive:true, maintainAspectRatio:false }
+      });
+
+      const mat = data.waste_matrix || [];
+      const values = mat.map(m => m.waste);
+      const maxAbs = Math.max(...values.map(v=>Math.abs(v)), 1);
+
+      const bubbles = mat.map(m => {
+        const v = m.waste;
+        const intensity = Math.min(Math.abs(v)/maxAbs, 1);
+        const r = 4 + intensity * 10;
+        const color = v >= 0 ? `rgba(239,68,68,${0.15 + 0.65*intensity})` : `rgba(22,163,74,${0.15 + 0.65*intensity})`;
+        return { x: m.hour, y: m.dayofweek, r, v, backgroundColor: color };
+      });
+
+      wasteHeatChart = new Chart(document.getElementById("wasteHeatChart"), {
+        type:"bubble",
+        data:{ datasets:[{
+          data: bubbles,
+          parsing:false,
+          backgroundColor: bubbles.map(b=>b.backgroundColor),
+          borderColor:"rgba(15,23,42,0.15)"
+        }]},
+        options:{
+          responsive:true, maintainAspectRatio:false,
+          plugins:{ tooltip:{ callbacks:{ label:(ctx)=>`hour=${ctx.raw.x}, day=${ctx.raw.y}, waste=${fmt(ctx.raw.v)}` }}, legend:{ display:false } },
+          scales:{
+            x:{ title:{display:true, text:"Hour"}, ticks:{ stepSize:1 }, min:0, max:23 },
+            y:{ title:{display:true, text:"Day of Week"}, ticks:{ stepSize:1 } }
+          }
+        }
+      });
+
+    }catch(e){
+      console.error(e);
+      setStatus("Error loading data. Check server logs.");
+    }
+  }
+
+  async function predict(){
+    const payload = {
+      building_id: parseInt(document.getElementById("predict_building_id").value),
+      meter: parseInt(document.getElementById("meter").value),
+      square_feet: parseFloat(document.getElementById("square_feet").value),
+      air_temperature: parseFloat(document.getElementById("air_temperature").value),
+      cloud_coverage: parseFloat(document.getElementById("cloud_coverage").value),
+      hour: parseInt(document.getElementById("hour").value),
+      month: parseInt(document.getElementById("month").value),
+      dayofweek: parseInt(document.getElementById("dayofweek").value)
+    };
+
+    const res = await fetch("/predict", {
+      method:"POST",
+      headers:{ "Content-Type":"application/json" },
+      body: JSON.stringify(payload)
+    });
+    const out = await res.json();
+
+    const pred = out.predicted_energy;
+    const base = out.baseline_actual;
+    const n = out.baseline_n || 0;
+
+    let html = `<b>Predicted:</b> ${fmt(pred)}`
+    if(base !== null && base !== undefined){
+      const diff = pred - base;
+      const pct = base > 0 ? (diff/base)*100 : 0;
+      const badge = diff >= 0 ? `<span class="pill badgeHigh">+${fmt(diff)} (${pct.toFixed(1)}%)</span>`
+                              : `<span class="pill badgeLow">${fmt(diff)} (${pct.toFixed(1)}%)</span>`;
+      html += `<br><b>Typical Actual:</b> ${fmt(base)} (n=${n})<br>Δ vs Typical: ${badge}`;
+    } else {
+      html += `<br><span class="muted">Typical actual not available for this exact bucket.</span>`;
+    }
+    document.getElementById("predictText").innerHTML = html;
+
+    if(predictCompareChart) predictCompareChart.destroy();
+    const labels = ["Predicted", "Typical Actual"];
+    const vals = [pred, (base ?? 0)];
+
+    predictCompareChart = new Chart(document.getElementById("predictCompareChart"), {
+      type:"bar",
+      data:{ labels, datasets:[{
+        label:"Energy",
+        data: vals,
+        backgroundColor:["rgba(37,99,235,0.35)","rgba(22,163,74,0.28)"],
+        borderColor:["#2563eb","#16a34a"],
+        borderWidth:2
+      }]},
+      options:{ responsive:true, maintainAspectRatio:false, plugins:{ legend:{ display:false } } }
+    });
+  }
+
+  loadData();
+</script>
+
+</body>
+</html>
